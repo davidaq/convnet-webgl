@@ -5,17 +5,16 @@ class TrainerConfig {
   constructor(basedir) {
     this.basedir = basedir;
     this.loadedNetwork = null;
-    this.cpu = false;
+    this.algorithm = { 'gpu' };
     this.layers = [];
     this.samples = [];
-    this.epochs = 100;
-    this.epochListeners = [];
+    this.epochListener = (currentState) => currentState.num < 1000;
   }
-  useCPU() {
-    this.cpu = true;
+  useAlgorithm(algorithm) {
+    this.algorithm = algorithm;
   }
   onEpoch(fn) {
-    this.epochListeners.push(fn);
+    this.epochListener = fn;
   }
   addLayer(conf) {
     this.layers.push(conf);
