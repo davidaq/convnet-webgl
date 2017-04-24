@@ -57,18 +57,21 @@ class Trainer {
         l1_decay: 0.001,
         l2_decay: 0.001,
       });
-      this.createEvaluator = () => {
-        const inLayer = this.layers[0];
-        const buffer = Vol(inLayer.out_sx, inLayer.out_sy, inLayer.out_depth);
-        return (input) => {
-          input(buffer);
-          return net.forward(buffer.vol).w;
-        };
-      };
+      this.createEvaluator = this.createEvaluatorFactory((vol) => net.forward(vol).w);
       return (input, target) => Promise.resolve(trainer.train(input, target));
     } else {
 
     }
+  }
+  createEvaluatorFactory(fn) {
+    return () => {
+      const inLayer = this.layers[0];
+      const buffer = Vol(inLayer.out_sx, inLayer.out_sy, inLayer.out_depth);
+      return (input) => {
+        input(buffer);
+        return fn(buffer.vol);
+      };
+    };
   }
   handleEpoch(epoch) {
     epoch.createEvaluator = this.createEvaluator;
