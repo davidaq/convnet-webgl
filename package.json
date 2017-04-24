@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "description": "Train convolutional neural network using webgl",
   "main": "index.js",
+  "engines": {
+    "node": ">=6.9"
+  },
   "bin": {
     "convnet-webgl": "bin/convnet-webgl"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "cd test && node ../bin/convnet-webgl xor.js"
   },
   "repository": {
     "type": "git",
@@ -23,6 +26,8 @@
   },
   "homepage": "https://github.com/davidaq/convnet-webgl#readme",
   "dependencies": {
+    "co": "^4.6.0",
+    "convnetjs": "^0.3.0",
     "opn": "^4.0.2"
   }
 }
