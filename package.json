@@ -1,0 +1,28 @@
+{
+  "name": "convnet-webgl",
+  "version": "1.0.0",
+  "description": "Train convolutional neural network using webgl",
+  "main": "index.js",
+  "bin": {
+    "convnet-webgl": "bin/convnet-webgl"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidaq/convnet-webgl.git"
+  },
+  "keywords": [
+    "machine-learning"
+  ],
+  "author": "DavidAQ",
+  "license": "Unlicense",
+  "bugs": {
+    "url": "https://github.com/davidaq/convnet-webgl/issues"
+  },
+  "homepage": "https://github.com/davidaq/convnet-webgl#readme",
+  "dependencies": {
+    "opn": "^4.0.2"
+  }
+}
