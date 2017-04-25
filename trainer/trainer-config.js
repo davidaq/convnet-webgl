@@ -5,7 +5,7 @@ class TrainerConfig {
   constructor(basedir) {
     this.basedir = basedir;
     this.loadedNetwork = null;
-    this.algorithm = { 'gpu' };
+    this.algorithm = { method: 'gpu' };
     this.layers = [];
     this.samples = [];
     this.epochListener = (currentState) => currentState.num < 1000;

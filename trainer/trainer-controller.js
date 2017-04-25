@@ -1,9 +1,13 @@
 const co = require('co');
-const { Net, SGDTrainer } = require('convnetjs');
+const { Net } = require('convnetjs');
 const Vol = require('./vol');
+const GPUTrainer = require('./gpu-trainer');
+const ConvNetJSTrainer = require('./convnetjs-trainer');
 
 class Trainer {
   constructor(config) {
+    this.createEvaluator = this.createEvaluator.bind(this);
+
     this.config = config;
     if (config.loadedNetwork) {
       const net = new Net();
@@ -14,11 +18,14 @@ class Trainer {
       net.makeLayers(config.layers);
       this.layers = net.layers;
     }
+
+    const TrainerClass = this.config.algorithm.method === 'gpu' ? GPUTrainer : ConvNetJSTrainer;
+    this.trainer = new TrainerClass(this.config.algorithm, this.layers);
   }
   run() {
     co.wrap(function *() {
       try {
-        const train = this.createTrainer();
+        yield this.trainer.ready();
         const inLayer = this.layers[0];
         const input = Vol(inLayer.out_sx, inLayer.out_sy, inLayer.out_depth);
         for (let i = 0; ; i++) {
@@ -32,7 +39,7 @@ class Trainer {
           for (let j = 0; j < epoch.sampleCount; j++) {
             const sample = this.config.samples[j];
             sample.input(input);
-            const trainResult = yield train(input.vol, sample.label);
+            const trainResult = yield this.trainer.train(input.vol, sample.label);
             epoch.softmax_loss += trainResult.softmax_loss;
             epoch.cost_loss += trainResult.cost_loss;
             epoch.loss += trainResult.loss;
@@ -49,35 +56,24 @@ class Trainer {
       }
     }).call(this);
   }
-  createTrainer() {
-    if (this.config.algorithm.method === 'gpu') {
-
-    } else {
-      const net = new Net();
-      net.fromJSON({ layers: this.layers });
-      const trainer = new SGDTrainer(net, {
-        method: 'adadelta',
-        batch_size: Math.min(50, Math.round(this.config.samples.length / 2)),
-        l1_decay: 0.001,
-        l2_decay: 0.001,
-      });
-      this.createEvaluator = this.createEvaluatorFactory((vol) => net.forward(vol).w);
-      return (input, target) => Promise.resolve(trainer.train(input, target));
-    }
-  }
-  createEvaluatorFactory(fn) {
-    return () => {
-      const inLayer = this.layers[0];
-      const buffer = Vol(inLayer.out_sx, inLayer.out_sy, inLayer.out_depth);
-      return (input) => {
-        input(buffer);
-        return fn(buffer.vol);
-      };
-    };
+  createEvaluator(cb) {
+    co.wrap(function *() {
+      try {
+        const net = yield this.trainer.getNetwork();
+        const inLayer = this.layers[0];
+        const buffer = Vol(inLayer.out_sx, inLayer.out_sy, inLayer.out_depth);
+        cb((input) => {
+          input(buffer);
+          return net.forward(buffer.vol).w;
+        });
+      } catch (err) {
+        console.error(err.stack);
+      }
+    }).call(this);
   }
   handleEpoch(epoch) {
     epoch.createEvaluator = this.createEvaluator;
-    return this.config.epochListener(fn => fn(epoch));
+    return this.config.epochListener(epoch);
   }
 }
 

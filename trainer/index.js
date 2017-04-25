@@ -5,11 +5,11 @@ if (!configFile) {
 }
 const Path = require('path');
 const TrainerConfig = require('./trainer-config.js');
-const Trainer = require('./trainer.js');
+const TrainerController = require('./trainer-controller.js');
 
 const trainerConfig = new TrainerConfig(Path.dirname(configFile));
 global.trainer = trainerConfig;
 require(Path.resolve(configFile));
 delete global.trainer;
-const trainer = new Trainer(trainerConfig);
-trainer.run();
+const controller = new TrainerController(trainerConfig);
+controller.run();

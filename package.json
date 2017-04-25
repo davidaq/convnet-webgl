@@ -27,6 +27,7 @@
   "homepage": "https://github.com/davidaq/convnet-webgl#readme",
   "dependencies": {
     "co": "^4.6.0",
+    "concat-stream": "^1.6.0",
     "convnetjs": "^0.3.0",
     "opn": "^4.0.2"
   }

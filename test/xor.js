@@ -33,40 +33,40 @@ trainer.addSample({
 });
 
 trainer.useAlgorithm({
-  method: 'adadelta',
-  batch_size: Math.min(50, Math.round(this.config.samples.length / 2)),
+  method: 'gpu',
+  batch_size: 3,
   l1_decay: 0.001,
   l2_decay: 0.001,
 });
 
 trainer.onEpoch(currentState => {
   if (currentState.epoch === 1000) {
-    console.log(currentState.loss);
-    const evaluate = currentState.createEvaluator();
-    console.log(Math.round(
-      evaluate(vol => {
-        vol(0).set(0);
-        vol(1).set(0);
-      })[0]
-    ));
-    console.log(Math.round(
-      evaluate(vol => {
-        vol(0).set(1);
-        vol(1).set(1);
-      })[0]
-    ));
-    console.log(Math.round(
-      evaluate(vol => {
-        vol(0).set(1);
-        vol(1).set(0);
-      })[0]
-    ));
-    console.log(Math.round(
-      evaluate(vol => {
-        vol(0).set(0);
-        vol(1).set(1);
-      })[0]
-    ));
+    currentState.createEvaluator(evaluate => {
+      console.log(Math.round(
+        evaluate(vol => {
+          vol(0).set(0);
+          vol(1).set(0);
+        })[0]
+      ));
+      console.log(Math.round(
+        evaluate(vol => {
+          vol(0).set(1);
+          vol(1).set(1);
+        })[0]
+      ));
+      console.log(Math.round(
+        evaluate(vol => {
+          vol(0).set(1);
+          vol(1).set(0);
+        })[0]
+      ));
+      console.log(Math.round(
+        evaluate(vol => {
+          vol(0).set(0);
+          vol(1).set(1);
+        })[0]
+      ));
+    });
     return false;
   }
 });
