@@ -23,7 +23,7 @@ class Trainer {
     this.trainer = new TrainerClass(this.config.algorithm, this.layers);
   }
   run() {
-    co.wrap(function *() {
+    return co.wrap(function *() {
       try {
         yield this.trainer.ready();
         const inLayer = this.layers[0];
@@ -53,11 +53,13 @@ class Trainer {
         }
       } catch (err) {
         console.error(err.stack);
+      } finally {
+        yield this.trainer.close();
       }
     }).call(this);
   }
   createEvaluator(cb) {
-    co.wrap(function *() {
+    return co.wrap(function *() {
       try {
         const net = yield this.trainer.getNetwork();
         const inLayer = this.layers[0];

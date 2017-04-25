@@ -40,7 +40,7 @@ trainer.useAlgorithm({
 });
 
 trainer.onEpoch(currentState => {
-  if (currentState.epoch === 1000) {
+  if (currentState.epoch === 100) {
     currentState.createEvaluator(evaluate => {
       console.log(Math.round(
         evaluate(vol => {

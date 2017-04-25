@@ -18,6 +18,10 @@ class ConvNetJSTrainer {
   getNetwork() {
     return Promise.resolve(this.net);
   }
+
+  close() {
+    return Promise.resolve(true);
+  }
 }
 
 module.exports = ConvNetJSTrainer;
