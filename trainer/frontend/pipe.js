@@ -22,5 +22,15 @@ Define(async () => {
     const { id, func, args } = JSON.parse(event.data);
     pipe.sendEvent('rpc-return', { id, value: await rpc[func](...args) });
   });
+  let lastBeat = Date.now();
+  pipe.sse.addEventListener('heart-beat', () => {
+    lastBeat = Date.now();
+  });
+  setInterval(() => {
+    if (Date.now() - lastBeat > 3000) {
+      console.log('Disconnected');
+      window.close();
+    }
+  }, 3000);
   return pipe;
 });

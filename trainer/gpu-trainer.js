@@ -48,7 +48,6 @@ class GPUTrainer {
   }
 
   sendEvent(eventName, data) {
-    console.log(eventName);
     this.browser.write(`event: ${eventName}\r\ndata: ${JSON.stringify(data)}\r\n\r\n`);
   }
 
@@ -74,6 +73,9 @@ class GPUTrainer {
       this.rpcResolves[0] = resolve;
     })
     .then(() => {
+      setInterval(() => {
+        this.sendEvent('heart-beat');
+      }, 1000);
       return this.rpc('init', this.props, this.layers);
     });
   }
