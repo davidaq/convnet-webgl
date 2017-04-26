@@ -1,4 +1,4 @@
-Define(async () => {
+M(async () => {
   function train() {
 
   }

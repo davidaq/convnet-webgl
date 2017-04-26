@@ -1,6 +1,6 @@
 (() => {
   const modCache = {};
-  async function Define(fn) {
+  async function M(fn) {
     const a = document.createElement('a');
     a.href = document.currentScript.src;
     const cache = modCache[a.pathname];
@@ -26,7 +26,13 @@
     }
     return modCache[pathname].promise;
   }
-  window.Define = Define;
-  window.require = require;
+  function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
+  }
+  Object.assign(window, {
+    M,
+    require,
+    sleep,
+  });
   require('main');
 })();

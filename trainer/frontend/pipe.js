@@ -1,4 +1,4 @@
-Define(async () => {
+M(async () => {
   const rpc = {};
   const pipe = {
     register(funcName, func) {

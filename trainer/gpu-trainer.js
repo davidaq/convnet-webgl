@@ -18,10 +18,10 @@ class GPUTrainer {
         case '/':
           if (this.browser) {
             res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-            Fs.createReadStream(Path.join(__dirname, 'frontend', 'index-bad.html')).pipe(res);
+            Fs.createReadStream(Path.join(__dirname, 'frontend', 'html', 'no-second.html')).pipe(res);
           } else {
             res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-            Fs.createReadStream(Path.join(__dirname, 'frontend', 'index.html')).pipe(res);
+            Fs.createReadStream(Path.join(__dirname, 'frontend', 'html', 'main.html')).pipe(res);
           }
           break;
         case '/event-stream':
