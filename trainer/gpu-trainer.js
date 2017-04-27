@@ -46,12 +46,9 @@ class GPUTrainer {
             if (!exists) {
               res.end();
             } else if (/\.js$/i.test(fpath)) {
-              const stream = Fs.createReadStream(fpath);
-              res.write('M(async (require, module, exports) => {');
-              stream.on('data', (chunk) => {
-                res.write(chunk);
-              });
-              stream.on('end', () => {
+              Fs.readFile(fpath, 'utf-8', (err, content) => {
+                res.write('M(async (require, module, exports) => {');
+                res.write(content.replace(/\=\s*require\s*\(/g, '= await require('));
                 res.end('});');
               });
             } else {

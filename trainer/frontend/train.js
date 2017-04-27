@@ -1,6 +1,5 @@
-M(async () => {
-  function train() {
+function train() {
 
-  }
-  return train;
-});
+}
+
+module.exports = train;
