@@ -7,6 +7,8 @@ M(async () => {
     gl.clearColor(0.0, 0.0, 0.0, 0.0);
     gl.disable(gl.DEPTH_TEST);
     gl.getExtension('OES_texture_float');
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
 
     const vertices = [
       0, 0,
@@ -43,7 +45,8 @@ M(async () => {
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
       var info = gl.getShaderInfoLog(shader);
-      throw 'Could not compile WebGL program. \n\n' + info + code;
+      throw 'Could not compile WebGL program. \n\n' + info + '\n'
+        + code.split('\n').map((line, index) => `${index + 1}\t${line}`).join('\n');
     }
     return shader;
   };
@@ -107,8 +110,6 @@ M(async () => {
 
     return (output, input) => {
       output.bindFramebuffer();
-      gl.viewport(0, 0, output.width, output.height);
-      gl.clear(gl.COLOR_BUFFER_BIT);
       gl.useProgram(program);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, glcl.nonceTexture);
@@ -141,7 +142,10 @@ M(async () => {
     };
   };
   glcl.Vol = class {
-    constructor(width, height, depth) {
+    constructor(width = 1, height = 1, depth = 1) {
+      if (depth < 1 || depth > 4) {
+        throw new Error('depth must be between 1 and 4');
+      }
       this.width = width;
       this.height = height;
       this.widthPOT = glcl.nearestPOT(width);
@@ -189,6 +193,19 @@ M(async () => {
       }
       return ret;
     }
+    clear() {
+      this.bindFramebuffer();
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+    randomize(min = 0, max = 1) {
+      const delta = max - min;
+      for (let i = 0; i < this.buffer.length; i++) {
+        this.buffer[i] = Math.random() * delta + min;
+      }
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.texture);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.height, gl.RGBA, gl.FLOAT, this.buffer);
+    }
     bindFramebuffer() {
       if (!this.framebuffer) {
         this.framebuffer = gl.createFramebuffer();
@@ -197,6 +214,7 @@ M(async () => {
       } else {
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
       }
+      gl.viewport(0, 0, this.width, this.height);
     }
   };
   glcl.nearestPOT = (num) => {
