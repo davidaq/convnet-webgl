@@ -5,14 +5,15 @@ M(async () => {
   const glcl = await require('glcl');
   pipe.register('init', async (props, layers) => {
     glcl.init();
-    const v1 = new glcl.Vol(100, 100, 2);
-    const v2 = new glcl.Vol(100, 100, 2);
+    const v1 = new glcl.Vol(3, 5, 1);
+    const v2 = new glcl.Vol(3, 5, 1);
     const sum = glcl.createProgram({
-      tex: 'sampler2D',
+      tex: 'vol',
     }, `
-      mediump vec4 s = texture2D(tex, cursor);
+      mediump vec4 s = tex(outpos);
       return s;
     `);
+    v1.set([1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3]);
     sum(v2, { tex: v1 });
     console.log(v2.get());
     console.log('END');

@@ -32,12 +32,12 @@ trainer.addSample({
   label: [0],
 });
 
-trainer.useAlgorithm({
-  method: 'adadelta',
-  batch_size: 3,
-  l1_decay: 0.001,
-  l2_decay: 0.001,
-});
+// trainer.useAlgorithm({
+//   method: 'adadelta',
+//   batch_size: 3,
+//   l1_decay: 0.001,
+//   l2_decay: 0.001,
+// });
 
 trainer.setMaxEpoch(50);
 
