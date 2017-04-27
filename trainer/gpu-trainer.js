@@ -43,7 +43,20 @@ class GPUTrainer {
         default:
           const fpath = Path.join(__dirname, 'frontend', req.url.substr(1));
           Fs.exists(fpath, exists => {
-            exists ? Fs.createReadStream(fpath).pipe(res) : res.end();
+            if (!exists) {
+              res.end();
+            } else if (/\.js$/i.test(fpath)) {
+              const stream = Fs.createReadStream(fpath);
+              res.write('M(async (require, module, exports) => {');
+              stream.on('data', (chunk) => {
+                res.write(chunk);
+              });
+              stream.on('end', () => {
+                res.end('});');
+              });
+            } else {
+              Fs.createReadStream(fpath).pipe(res);
+            }
           });
           break;
       }
