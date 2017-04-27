@@ -4,12 +4,12 @@ if (!configFile) {
   process.exit(1);
 }
 const Path = require('path');
-const TrainerConfig = require('./trainer-config.js');
+const TrainerInterface = require('./trainer-interface.js');
 const TrainerController = require('./trainer-controller.js');
 
-const trainerConfig = new TrainerConfig(Path.dirname(configFile));
-global.trainer = trainerConfig;
-require(Path.resolve(configFile));
-delete global.trainer;
-const controller = new TrainerController(trainerConfig);
+const resolvedConfigFile = require.resolve(Path.resolve(configFile));
+const tInterface = new TrainerInterface(Path.dirname(resolvedConfigFile), resolvedConfigFile + 'on');
+global.trainer = tInterface;
+require(resolvedConfigFile);
+const controller = new TrainerController(tInterface);
 controller.run();

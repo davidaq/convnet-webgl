@@ -5,77 +5,95 @@ const GPUTrainer = require('./gpu-trainer');
 const ConvNetJSTrainer = require('./convnetjs-trainer');
 
 class Trainer {
-  constructor(config) {
-    this.createEvaluator = this.createEvaluator.bind(this);
-
-    this.config = config;
-    if (config.loadedNetwork) {
-      const net = new Net();
-      net.fromJSON(config.loadedNetwork);
-      this.layers = net.layers;
+  constructor(tInterface) {
+    this.tInterface = tInterface;
+    this.initNetwork = new Net();
+    if (tInterface.loadedNetwork) {
+      this.initNetwork.fromJSON(tInterface.loadedNetwork);
     } else {
-      const net = new Net();
-      net.makeLayers(config.layers);
-      this.layers = net.layers;
+      this.initNetwork.makeLayers(tInterface.layers);
     }
-
-    const TrainerClass = this.config.algorithm.method === 'gpu' ? GPUTrainer : ConvNetJSTrainer;
-    this.trainer = new TrainerClass(this.config.algorithm, this.layers);
+    this.layers = this.initNetwork.layers;
   }
   run() {
     return co.wrap(function *() {
       try {
-        yield this.trainer.ready();
+        this.tInterface.backend = this;
+        this.tInterface.emit('ready');
         const inLayer = this.layers[0];
-        const input = Vol(inLayer.out_sx, inLayer.out_sy, inLayer.out_depth);
-        for (let i = 0; ; i++) {
-          const epoch = {
-            sampleCount: this.config.samples.length,
-            softmax_loss: 0,
-            cost_loss: 0,
-            loss: 0,
-            epoch: i + 1,
-          };
-          for (let j = 0; j < epoch.sampleCount; j++) {
-            const sample = this.config.samples[j];
+        const input = new Vol(inLayer.out_sx, inLayer.out_sy, inLayer.out_depth);
+        const status = {
+          sampleCount: this.tInterface.samples.length,
+          softmax_loss: 0,
+          cost_loss: 0,
+          loss: 0,
+          epoch: 0,
+        };
+        for (let i = 0; i < this.tInterface.maxEpoch && !this.tInterface.stoped; i++) {
+          status.sampleCount = this.tInterface.samples.length;
+          status.softmax_loss = 0;
+          status.cost_loss = 0;
+          status.loss = 0;
+          status.epoch = i + 1;
+          for (let j = 0; j < status.sampleCount; j++) {
+            if (!this.trainer) {
+              const TrainerClass = this.tInterface.algorithm.method === 'gpu' ? GPUTrainer : ConvNetJSTrainer;
+              this.trainer = new TrainerClass(this.tInterface.algorithm, this.layers);
+              yield this.trainer.ready();
+            }
+            const sample = this.tInterface.samples[j];
             sample.input(input);
             const trainResult = yield this.trainer.train(input.vol, sample.label);
-            epoch.softmax_loss += trainResult.softmax_loss;
-            epoch.cost_loss += trainResult.cost_loss;
-            epoch.loss += trainResult.loss;
+            status.softmax_loss += trainResult.softmax_loss;
+            status.cost_loss += trainResult.cost_loss;
+            status.loss += trainResult.loss;
+            this.tInterface.saved = false;
           }
-          epoch.softmax_loss /= epoch.sampleCount;
-          epoch.cost_loss /= epoch.sampleCount;
-          epoch.loss /= epoch.sampleCount;
-          if (this.handleEpoch(epoch) === false) {
-            break;
-          }
+          status.softmax_loss /= status.sampleCount;
+          status.cost_loss /= status.sampleCount;
+          status.loss /= status.sampleCount;
+          this.tInterface.emit('epoch', status);
+        }
+        this.tInterface.emit('finish', status);
+        if (!this.tInterface.saved) {
+          this.tInterface.saveFile();
+        }
+      } catch (err) {
+        if (this.tInterface.listeners('error').length > 0) {
+          this.tInterface.emit('error', err);
+        } else {
+          console.error(err.stack);
+        }
+      } finally {
+        if (this.trainer) {
+          yield this.trainer.close();
+        }
+        this.tInterface.emit('close');
+      }
+    }).call(this);
+  }
+  getNetwork(cb) {
+    return co.wrap(function *() {
+      try {
+        if (!this.trainer) {
+          cb(this.initNetwork);
+        } else {
+          cb(yield this.trainer.getNetwork());
         }
       } catch (err) {
         console.error(err.stack);
-      } finally {
-        yield this.trainer.close();
       }
     }).call(this);
   }
-  createEvaluator(cb) {
-    return co.wrap(function *() {
-      try {
-        const net = yield this.trainer.getNetwork();
-        const inLayer = this.layers[0];
-        const buffer = Vol(inLayer.out_sx, inLayer.out_sy, inLayer.out_depth);
-        cb((input) => {
-          input(buffer);
-          return net.forward(buffer.vol).w;
-        });
-      } catch (err) {
-        console.error(err.stack);
-      }
-    }).call(this);
-  }
-  handleEpoch(epoch) {
-    epoch.createEvaluator = this.createEvaluator;
-    return this.config.epochListener(epoch);
+  evaluator(cb) {
+    this.getNetwork(net => {
+      const inLayer = this.layers[0];
+      const buffer = new Vol(inLayer.out_sx, inLayer.out_sy, inLayer.out_depth);
+      cb((input) => {
+        input(buffer);
+        return net.forward(buffer.vol).w;
+      });
+    });
   }
 }
 
