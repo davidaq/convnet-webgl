@@ -5,11 +5,13 @@ function GPU() {
   canvas.height = 1;
   document.body.appendChild(canvas);
   const gl = canvas.getContext('webgl');
-
-  const G = {};
   const gpu = {};
 
-  gpu.init = () => {
+  const rectPosBuffer = gl.createBuffer();
+  const nonceTexture = gl.createTexture();
+  const passthruVertexShader = gl.createShader(gl.VERTEX_SHADER);
+
+  function init() {
     gl.clearColor(0.0, 0.0, 0.0, 0.0);
     gl.disable(gl.DEPTH_TEST);
     gl.getExtension('OES_texture_float');
@@ -22,21 +24,16 @@ function GPU() {
       1, 1,
       0, 1,
     ];
-    const indicies = [1, 2, 3, 1, 3, 4];
-    G.rectPosBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, G.rectPosBuffer);
+    gl.bindBuffer(gl.ARRAY_BUFFER, rectPosBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
-    G.rectIndBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, G.rectIndBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indicies), gl.STATIC_DRAW);
-    gpu.nonceTexture = gl.createTexture();
+
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, gpu.nonceTexture);
+    gl.bindTexture(gl.TEXTURE_2D, nonceTexture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.FLOAT, null);
 
-    G.passthruVertexShader = gpu.createShader(gl.VERTEX_SHADER, `
+    gpu.createShader(passthruVertexShader, `
       attribute mediump vec2 v_coord;
       varying highp vec2 f_outpos;
       void main() {
@@ -44,18 +41,18 @@ function GPU() {
         gl_Position = vec4(v_coord.xy * 2.0 - 1.0, 0.0, 1.0);
       }
     `);
-  };
+  }
 
   gpu.sync = () => {
     gl.finish();
   };
 
   gpu.createShader = (type, code) => {
-    var shader = gl.createShader(type);
+    const shader = typeof type === 'string' ? gl.createShader(type) : type;
     gl.shaderSource(shader, code);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      var info = gl.getShaderInfoLog(shader);
+      const info = gl.getShaderInfoLog(shader);
       throw 'Could not compile WebGL program. \n\n' + info + '\n'
         + code.split('\n').map((line, index) => `${index + 1}\t${line}`).join('\n');
     }
@@ -84,6 +81,8 @@ function GPU() {
             return texture2D(voltex_${key}, voldim_${key}.zw * (pxpos + 0.5));
           }
         `;
+        code = code.replace(new RegExp(`width\\s*\\(\\s*${key}\\s*\\)`, 'g'), `voldim_${key}.x`);
+        code = code.replace(new RegExp(`height\\s*\\(\\s*${key}\\s*\\)`, 'g'), `voldim_${key}.y`);
       } else {
         uniforms.push({ key, bind: loc => info.loc = loc });
         info.decl = `uniform ${bindingDecl} ${key};`;
@@ -108,7 +107,7 @@ function GPU() {
         gl_FragColor = run(outpos);
       }
     `);
-    gl.attachShader(program, G.passthruVertexShader);
+    gl.attachShader(program, passthruVertexShader);
     gl.attachShader(program, fragmentShader);
     gl.linkProgram(program);
     gl.useProgram(program);
@@ -116,15 +115,16 @@ function GPU() {
     const vCoordLoc = gl.getAttribLocation(program, 'v_coord');
     const outdimLoc = gl.getUniformLocation(program, 'f_outdim');
     gl.enableVertexAttribArray(vCoordLoc);
-    gl.bindBuffer(gl.ARRAY_BUFFER, G.rectPosBuffer);
+    gl.bindBuffer(gl.ARRAY_BUFFER, rectPosBuffer);
     gl.vertexAttribPointer(vCoordLoc, 2, gl.FLOAT, false, 0, 0);
     uniforms.forEach(item => item.bind(gl.getUniformLocation(program, item.key)));
 
-    return (output, input) => {
+    const ret = {};
+    ret.run = (output, input) => {
       output.bindFramebuffer();
       gl.useProgram(program);
       gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, gpu.nonceTexture);
+      gl.bindTexture(gl.TEXTURE_2D, nonceTexture);
       gl.uniform4f(outdimLoc, output.width, output.height, 1 / output.width, 1 / output.height);
       Object.keys(input).forEach(key => {
         const info = bindingInfo[key];
@@ -152,6 +152,7 @@ function GPU() {
       });
       gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
     };
+    return ret;
   };
 
   class Vol {
@@ -233,6 +234,10 @@ function GPU() {
 
   gpu.Vol = Vol;
 
+  gpu.destroy = () => {
+    canvas.parentElement.removeChild(canvas);
+  };
+
   function nearestPOT(num) {
     let ret = 1;
     while (ret < num) {
@@ -241,7 +246,8 @@ function GPU() {
     return ret;
   }
 
+  init();
   return gpu;
 }
 
-module.exports = GPU();
+module.exports = GPU;
