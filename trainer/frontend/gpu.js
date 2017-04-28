@@ -14,9 +14,6 @@ function GPU() {
   function init() {
     gl.clearColor(0.0, 0.0, 0.0, 0.0);
     gl.disable(gl.DEPTH_TEST);
-    gl.getExtension('OES_texture_float');
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE);
 
     const vertices = [
       0, 0,
@@ -31,7 +28,7 @@ function GPU() {
     gl.bindTexture(gl.TEXTURE_2D, nonceTexture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 
     gpu.createShader(passthruVertexShader, `
       attribute mediump vec2 v_coord;
@@ -48,7 +45,7 @@ function GPU() {
   };
 
   gpu.createShader = (type, code) => {
-    const shader = typeof type === 'string' ? gl.createShader(type) : type;
+    const shader = type instanceof WebGLShader ? type : gl.createShader(type);
     gl.shaderSource(shader, code);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
@@ -77,8 +74,8 @@ function GPU() {
         info.decl = `
           uniform mediump vec4 voldim_${key};
           uniform sampler2D voltex_${key};
-          mediump vec4 ${key} (vec2 pxpos) {
-            return texture2D(voltex_${key}, voldim_${key}.zw * (pxpos + 0.5));
+          float ${key} (vec2 pxpos) {
+            return unpack_float(texture2D(voltex_${key}, voldim_${key}.zw * (pxpos + 0.5)));
           }
         `;
         code = code.replace(new RegExp(`width\\s*\\(\\s*${key}\\s*\\)`, 'g'), `voldim_${key}.x`);
@@ -95,16 +92,29 @@ function GPU() {
       precision highp int;
       precision mediump sampler2D;
 
+      vec4 pack_float(float f) {
+        const vec4 bit_shift = vec4(256.0 * 256.0 * 256.0, 256.0 * 256.0, 256.0, 1.0);
+        const vec4 bit_mask = vec4(0.0, 1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0);
+        vec4 res = fract(f * bit_shift);
+        res -= res.xxyz * bit_mask;
+        return res;
+      }
+      float unpack_float(vec4 rgba) {
+        const vec4 bit_shift = vec4(1.0 / (256.0 * 256.0 * 256.0), 1.0 / (256.0 * 256.0), 1.0 / 256.0, 1.0);
+        float res = dot(rgba, bit_shift);
+        return res;
+      }
+
       varying highp vec2 f_outpos;
       uniform mediump vec4 f_outdim;
 
       ${Object.keys(binding).map(key => bindingInfo[key].decl).join('')}
-      mediump vec4 run(vec2 outpos) {
+      float run(vec2 outpos) {
         ${code}
       }
       void main() {
         vec2 outpos = f_outpos * f_outdim.xy - 0.5;
-        gl_FragColor = run(outpos);
+        gl_FragColor = pack_float(run(outpos));
       }
     `);
     gl.attachShader(program, passthruVertexShader);
@@ -119,8 +129,7 @@ function GPU() {
     gl.vertexAttribPointer(vCoordLoc, 2, gl.FLOAT, false, 0, 0);
     uniforms.forEach(item => item.bind(gl.getUniformLocation(program, item.key)));
 
-    const ret = {};
-    ret.run = (output, input) => {
+    const ret = (output, input) => {
       output.bindFramebuffer();
       gl.useProgram(program);
       gl.activeTexture(gl.TEXTURE0);
@@ -128,84 +137,67 @@ function GPU() {
       gl.uniform4f(outdimLoc, output.width, output.height, 1 / output.width, 1 / output.height);
       Object.keys(input).forEach(key => {
         const info = bindingInfo[key];
-        const val = input[key];
-        switch (info.type) {
-          case 'vol':
-            gl.uniform1i(info.loc, info.texIndex);
-            gl.uniform4f(info.dimLoc, val.width, val.height, 1 / val.widthPOT, 1 / val.heightPOT);
-            gl.activeTexture(info.texIndexEnum);
-            gl.bindTexture(gl.TEXTURE_2D, val.texture);
-            break;
-          case 'float':
-            gl.uniform1f(info.loc, val);
-            break;
-          case 'vec2':
-            gl.uniform2fv(info.loc, val);
-            break;
-          case 'vec3':
-            gl.uniform3fv(info.loc, val);
-            break;
-          case 'vec4':
-            gl.uniform4fv(info.loc, val);
-            break;
+        if (info) {
+          const val = input[key];
+          switch (info.type) {
+            case 'vol':
+              gl.uniform1i(info.loc, info.texIndex);
+              gl.uniform4f(info.dimLoc, val.width, val.height, 1 / val.widthPOT, 1 / val.heightPOT);
+              gl.activeTexture(info.texIndexEnum);
+              gl.bindTexture(gl.TEXTURE_2D, val.texture);
+              break;
+            case 'float':
+              gl.uniform1f(info.loc, val);
+              break;
+            case 'vec2':
+              gl.uniform2fv(info.loc, val);
+              break;
+            case 'vec3':
+              gl.uniform3fv(info.loc, val);
+              break;
+            case 'vec4':
+              gl.uniform4fv(info.loc, val);
+              break;
+          }
         }
       });
       gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
     };
+    ret.destroy = () => {
+    };
     return ret;
   };
 
-  class Vol {
-    constructor(width = 1, height = 1, depth = 1) {
-      if (depth < 1 || depth > 4) {
-        throw new Error('depth must be between 1 and 4');
-      }
+  class Buffer2D {
+    constructor(width = 1, height = 1) {
       this.width = width;
       this.height = height;
       this.widthPOT = nearestPOT(width);
       this.heightPOT = nearestPOT(height);
-      this.depth = depth;
       this.framebuffer = null;
       this.texture = gl.createTexture();
-      this.buffer = new Float32Array(this.width * this.height * 4);
+      this.bytesLength = this.width * this.height * 4;
+      this.buffer = new ArrayBuffer(this.bytesLength);
+      this.bufferByteView = new Uint8Array(this.buffer);
+      this.bufferFloatView = new Float32Array(this.buffer);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.texture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.widthPOT, this.heightPOT, 0, gl.RGBA, gl.FLOAT, null);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.widthPOT, this.heightPOT, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     }
     set(data) {
-      let i = 0, j = 0;
-      for (let y = 0; y < this.height; y++) {
-        for (let x = 0; x < this.width; x++) {
-          for (let z = 0; z < this.depth; z++) {
-            this.buffer[i] = data[j];
-            i++;
-            j++;
-          }
-          i += 4 - this.depth;
-        }
+      for (let i = this.bytesLength; i >= 0; i--) {
+        this.bufferFloatView[i] = data[i];
       }
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.texture);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.height, gl.RGBA, gl.FLOAT, this.buffer);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.height, gl.RGBA, gl.UNSIGNED_BYTE, this.bufferByteView);
     }
     get() {
       this.bindFramebuffer();
-      gl.readPixels(0, 0, this.width, this.height, gl.RGBA, gl.FLOAT, this.buffer, 0);
-      const ret = new Float32Array(this.width * this.height * this.depth);
-      let i = 0, j = 0;
-      for (let y = 0; y < this.height; y++) {
-        for (let x = 0; x < this.width; x++) {
-          for (let z = 0; z < this.depth; z++) {
-            ret[j] = this.buffer[i];
-            i++;
-            j++;
-          }
-          i += 4 - this.depth;
-        }
-      }
-      return ret;
+      gl.readPixels(0, 0, this.width, this.height, gl.RGBA, gl.UNSIGNED_BYTE, this.bufferByteView, 0);
+      return this.bufferFloatView.slice(0);
     }
     clear() {
       this.bindFramebuffer();
@@ -218,7 +210,7 @@ function GPU() {
       }
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.texture);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.height, gl.RGBA, gl.FLOAT, this.buffer);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.height, gl.RGBA, gl.UNSIGNED_BYTE, this.buffer);
     }
     bindFramebuffer() {
       if (!this.framebuffer) {
@@ -230,9 +222,15 @@ function GPU() {
       }
       gl.viewport(0, 0, this.width, this.height);
     }
+    copyTo(target) {
+      this.bindFramebuffer();
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, target.texture);
+      gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, target.width, target.height, 0);
+    }
   }
 
-  gpu.Vol = Vol;
+  gpu.Buffer2D = Buffer2D;
 
   gpu.destroy = () => {
     canvas.parentElement.removeChild(canvas);
@@ -251,3 +249,28 @@ function GPU() {
 }
 
 module.exports = GPU;
+
+window.pack = function pack(f) {
+  const fract = (v) => v - Math.floor(v);
+  const bit_shift = [256 * 256 * 256 , 256 * 256, 256, 1];
+  const bit_mask = [0, 1 / 256, 1 / 256, 1 / 256];
+  const res = bit_shift.map(v => fract(v * f));
+  res[0] -= res[0] * bit_mask[0];
+  res[1] -= res[0] * bit_mask[1];
+  res[2] -= res[1] * bit_mask[2];
+  res[3] -= res[2] * bit_mask[3];
+  return res;
+  // vec4 pack_float(float f) {
+  //   const vec4 bit_shift = vec4(256.0 * 256.0 * 256.0, 256.0 * 256.0, 256.0, 1.0);
+  //   const vec4 bit_mask = vec4(0.0, 1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0);
+  //   vec4 res = fract(f * bit_shift);
+  //   res -= res.xxyz * bit_mask;
+  //   return res;
+  // }
+}
+
+      float unpack_float(vec4 rgba) {
+        const vec4 bit_shift = vec4(1.0 / (256.0 * 256.0 * 256.0), 1.0 / (256.0 * 256.0), 1.0 / 256.0, 1.0);
+        float res = dot(rgba, bit_shift);
+        return res;
+      }
