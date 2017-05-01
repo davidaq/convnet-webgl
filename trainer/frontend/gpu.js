@@ -1,14 +1,34 @@
+/**
+ * General purpose gpu calculation powered by webgl
+ */
 
+/**
+ * The ultimate function to create a gpgpu context
+ */
 function GPU() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 1;
-  canvas.height = 1;
-  document.body.appendChild(canvas);
-  const gl = canvas.getContext('webgl');
+  /**
+   * Returned interface instance for further user usage
+   */
   const gpu = {};
-  const bufferPacks = {};
 
+  /**
+   * Constants used all over this gpgpu context
+   */
+  const bufferPacks = {};
+  const { canvas, gl, rectPosBuffer, nonceTexture, passthruVertexShader } = init();
+  const copyProgram = createProgram({ source: 'buffer' }, `
+    return source(outpos);
+  `);
+
+  /**
+   * Initialize canvas, webgl and some overall constants
+   */
   function init() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    document.body.appendChild(canvas);
+    const gl = canvas.getContext('webgl');
     gl.getExtension('OES_texture_float');
     gl.clearColor(0.0, 0.0, 0.0, 0.0);
     gl.disable(gl.DEPTH_TEST);
@@ -39,9 +59,14 @@ function GPU() {
         gl_Position = vec4(v_coord.xy * 2.0 - 1.0, 0.0, 1.0);
       }
     `);
-    return { rectPosBuffer, nonceTexture, passthruVertexShader };
+    return { canvas, gl, rectPosBuffer, nonceTexture, passthruVertexShader };
   }
 
+  /**
+   * Generate a compiled vertex or fragment shader
+   * @param {*} type gl.VERTEX_SHADER or gl.FRAGMENT_SHADER
+   * @param {string} code shader glsl code
+   */
   function createShader(type, code) {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, code);
@@ -54,6 +79,10 @@ function GPU() {
     return shader;
   };
 
+  /**
+   * Find the least power of two bigger than a target
+   * @param {*} num minimum returned number
+   */
   function leastPOT(num) {
     let ret = 1;
     while (ret < num) {
@@ -62,6 +91,12 @@ function GPU() {
     return ret | 0;
   }
 
+  /**
+   * Allocate a packed texture buffer
+   * @param {*} width used buffer width
+   * @param {*} height used buffer height
+   * @param {*} flag  whether the texture is dedicated for receiving program output
+   */
   function allocBuffer(width, height, flag) {
     const widthPOT = leastPOT(width);
     const heightPOT = leastPOT(height);
@@ -94,13 +129,12 @@ function GPU() {
     return [packed, slot];
   };
 
-  const { rectPosBuffer, nonceTexture, passthruVertexShader } = init();
-
-  gpu.sync = () => {
-    gl.finish();
-  };
-
-  gpu.createProgram = (binding, code) => {
+  /**
+   * Create a gpgpu program
+   * @param {*} binding define bound uniforms
+   * @param {*} code the fragment shader code, should return a float
+   */
+  function createProgram(binding, code) {
     let textureCounter = 0;
     const bindingInfo = {};
     const uniforms = [];
@@ -202,11 +236,18 @@ function GPU() {
     };
     return ret;
   };
+  gpu.createProgram = createProgram;
 
-  const copyProgram = gpu.createProgram({ source: 'buffer' }, `
-    return source(outpos);
-  `);
+  /**
+   * Block until gpu operations are finished
+   */
+  gpu.sync = () => {
+    gl.finish();
+  };
 
+  /**
+   * Internal use class, provides 4 buffer slots each taking a rgba channel
+   */
   class Buffer2DPacked {
     constructor(width = 1, height = 1) {
       this.slots = [false, false, false, false];
@@ -301,6 +342,10 @@ function GPU() {
     }
   }
   
+  /**
+   * User interface buffer, holds 2 dimentional float point data which
+   * can be used as program input or output
+   */
   class Buffer2D {
     constructor(width, height, isSwap) {
       width = width | 0;
@@ -372,6 +417,9 @@ function GPU() {
 
   gpu.Buffer2D = Buffer2D;
 
+  /**
+   * destroy the current gpgpu context
+   */
   gpu.destroy = () => {
     canvas.parentElement.removeChild(canvas);
   };
