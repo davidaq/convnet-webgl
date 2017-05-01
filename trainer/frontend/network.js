@@ -7,17 +7,16 @@ function Network(initLayers) {
 
   const vol = new gpu.Buffer2D(3, 3);
   const vol2 = new gpu.Buffer2D(3, 3);
-  const vol3 = new gpu.Buffer2D(3, 3);
   vol2.set([1, 2, 3, 4, 5, 6, 7, 8, 9]);
-  vol3.randomize();
+  vol.randomize();
   const program = gpu.createProgram({
     inp1: 'buffer',
     inp2: 'buffer',
   }, `
-    return inp1(outpos);
+    return inp1(outpos) + inp2(outpos);
   `);
-  vol.solve(program, {inp1: vol2, inp2:vol3});
-  console.log(vol.get());
+  vol.solve(program, { inp1: vol, inp2: vol2 });
+  console.log(vol.get(), vol2.get());
 
 
   const network = {};
@@ -32,7 +31,7 @@ function Network(initLayers) {
       return new MixedLayer(gpu, layer);
     }
   }).filter(v => !!v);
-  const revLayers = layers.slice(0).reverse();
+  const revLayers = layers.slice(0).reverse(); 
 
   network.forward = (input) => {
     return layers.reduce((prevOut, layer) => layer.forward(prevOut), input);

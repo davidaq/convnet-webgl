@@ -6,15 +6,15 @@ function GPU() {
   document.body.appendChild(canvas);
   const gl = canvas.getContext('webgl');
   const gpu = {};
-
-  const rectPosBuffer = gl.createBuffer();
-  const nonceTexture = gl.createTexture();
-  const passthruVertexShader = gl.createShader(gl.VERTEX_SHADER);
+  const bufferPacks = {};
 
   function init() {
     gl.getExtension('OES_texture_float');
     gl.clearColor(0.0, 0.0, 0.0, 0.0);
     gl.disable(gl.DEPTH_TEST);
+
+    const rectPosBuffer = gl.createBuffer();
+    const nonceTexture = gl.createTexture();
 
     const vertices = [
       0, 0,
@@ -31,7 +31,7 @@ function GPU() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 
-    gpu.createShader(passthruVertexShader, `
+    const passthruVertexShader = createShader(gl.VERTEX_SHADER, `
       attribute mediump vec2 v_coord;
       varying highp vec2 f_outpos;
       void main() {
@@ -39,14 +39,11 @@ function GPU() {
         gl_Position = vec4(v_coord.xy * 2.0 - 1.0, 0.0, 1.0);
       }
     `);
+    return { rectPosBuffer, nonceTexture, passthruVertexShader };
   }
 
-  gpu.sync = () => {
-    gl.finish();
-  };
-
-  gpu.createShader = (type, code) => {
-    const shader = type instanceof WebGLShader ? type : gl.createShader(type);
+  function createShader(type, code) {
+    const shader = gl.createShader(type);
     gl.shaderSource(shader, code);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
@@ -55,6 +52,52 @@ function GPU() {
         + code.split('\n').map((line, index) => `${index + 1}\t${line}`).join('\n');
     }
     return shader;
+  };
+
+  function leastPOT(num) {
+    let ret = 1;
+    while (ret < num) {
+      ret *= 2;
+    }
+    return ret | 0;
+  }
+
+  function allocBuffer(width, height, flag) {
+    const widthPOT = leastPOT(width);
+    const heightPOT = leastPOT(height);
+    const index = widthPOT * 16384 + heightPOT * 2 + flag;
+    let list = bufferPacks[index];
+    if (!list) {
+      list = [];
+      bufferPacks[index] = list;
+    }
+    let packed = null;
+    let slot = 0;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].freeSlots > 0) {
+        packed = list[i];
+        for (let j = 0; j < 4; j++) {
+          if (!packed.slots[j]) {
+            slot = j;
+            break;
+          }
+        }
+        break;
+      }
+    }
+    if (!packed) {
+      packed = new Buffer2DPacked(widthPOT, heightPOT);
+      list.push(packed);
+    }
+    packed.slots[slot] = { width, height };
+    packed.freeSlots--;
+    return [packed, slot];
+  };
+
+  const { rectPosBuffer, nonceTexture, passthruVertexShader } = init();
+
+  gpu.sync = () => {
+    gl.finish();
   };
 
   gpu.createProgram = (binding, code) => {
@@ -81,8 +124,6 @@ function GPU() {
             return dot(volmask_${key}, texture2D(voltex_${key}, voldim_${key}.zw * (pxpos + 0.5)));
           }
         `;
-        code = code.replace(new RegExp(`width\\s*\\(\\s*${key}\\s*\\)`, 'g'), `voldim_${key}.x`);
-        code = code.replace(new RegExp(`height\\s*\\(\\s*${key}\\s*\\)`, 'g'), `voldim_${key}.y`);
       } else {
         uniforms.push({ key, bind: loc => info.loc = loc });
         info.decl = `uniform ${bindingDecl} ${key};`;
@@ -90,7 +131,7 @@ function GPU() {
     });
 
     const program = gl.createProgram();
-    const fragmentShader = gpu.createShader(gl.FRAGMENT_SHADER, `
+    const fragmentShader = createShader(gl.FRAGMENT_SHADER, `
       precision highp float;
       precision highp int;
       precision mediump sampler2D;
@@ -121,10 +162,10 @@ function GPU() {
     gl.vertexAttribPointer(vCoordLoc, 2, gl.FLOAT, false, 0, 0);
     uniforms.forEach(item => item.bind(gl.getUniformLocation(program, item.key)));
 
-    const ret = (output, input) => {
-      output.bindFramebuffer();
-      output.packed.needUpload = false;
-      output.packed.needDownload = true;
+    const ret = (output, input = {}, fromSolve = false) => {
+      if (!fromSolve) {
+        return output.solve(ret, input);
+      }
       gl.useProgram(program);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, nonceTexture);
@@ -138,9 +179,7 @@ function GPU() {
               gl.uniform1i(info.loc, info.texIndex);
               gl.uniform4f(info.dimLoc, val.width, val.height, 1 / val.widthPOT, 1 / val.heightPOT);
               gl.uniform4f(info.maskLoc, val.slot === 0 ? 1 : 0, val.slot === 1 ? 1 : 0, val.slot === 2 ? 1 : 0, val.slot === 3 ? 1 : 0);
-              gl.activeTexture(info.texIndexEnum);
-              gl.bindTexture(gl.TEXTURE_2D, val.texture);
-              val.packed.upload();
+              val.packed.bindTexture(info.texIndexEnum);
               break;
             case 'float':
               gl.uniform1f(info.loc, val);
@@ -163,6 +202,10 @@ function GPU() {
     };
     return ret;
   };
+
+  const copyProgram = gpu.createProgram({ source: 'buffer' }, `
+    return source(outpos);
+  `);
 
   class Buffer2DPacked {
     constructor(width = 1, height = 1) {
@@ -221,7 +264,10 @@ function GPU() {
       return ret;
     }
     download() {
-      if (!this.needUpload && this.needDownload) {
+      if (this.needDownload) {
+        if (this.needUpload) {
+          console.warn('Downloading texture data when upload is also needed');
+        }
         this.bindFramebuffer();
         gl.readPixels(0, 0, this.width, this.height, gl.RGBA, gl.FLOAT, this.buffer, 0);
         this.needDownload = false;
@@ -232,6 +278,11 @@ function GPU() {
         gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.height, gl.RGBA, gl.FLOAT, this.buffer);
         this.needUpload = false;
       }
+    }
+    bindTexture(texIndexEnum) {
+      gl.activeTexture(texIndexEnum || gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.texture);
+      this.upload();
     }
     bindFramebuffer() {
       if (!this.framebuffer) {
@@ -249,54 +300,52 @@ function GPU() {
       }
     }
   }
-  const buffers = {};
-  Buffer2DPacked.alloc = (width, height, widthPOT, heightPOT) => {
-    const index = widthPOT * 8192 + heightPOT;
-    let list = buffers[index];
-    if (!list) {
-      list = [];
-      buffers[index] = list;
+  
+  class Buffer2D {
+    constructor(width, height, isSwap) {
+      width = width | 0;
+      height = height | 0;
+      this.width = width;
+      this.height = height;
+      this.widthPOT = leastPOT(width);
+      this.heightPOT = leastPOT(height);
+      this.recycled = false;
+      this.buffer = new Float32Array(width * height);
+      [this.packed, this.slot] = allocBuffer(this.width, this.height, isSwap ? 1 : 0);
+      this.isSwap = isSwap;
+      this.swap = null;
     }
-    let packed = null;
-    let slot = 0;
-    for (let i = 0; i < list.length; i++) {
-      if (list[i].freeSlots > 0) {
-        packed = list[i];
-        for (let j = 0; j < 4; j++) {
-          if (!packed.slots[j]) {
-            slot = j;
+    solve(program, bindings) {
+      this.packed.bindTexture();
+      const bindingKeys = Object.keys(bindings);
+      let needSwap = false;
+      if (!this.isSwap) {
+        for (let i = 0; i < bindingKeys.length; i++) {
+          const bindingItem = bindings[bindingKeys[i]];
+          if (bindingItem instanceof Buffer2D && bindingItem.packed === this.packed) {
+            needSwap = true;
             break;
           }
         }
-        break;
       }
-    }
-    if (!packed) {
-      packed = new Buffer2DPacked(widthPOT, heightPOT);
-    }
-    packed.slots[slot] = { width, height };
-    packed.freeSlots--;
-    return [packed, slot];
-  };
-  
-  class Buffer2D {
-    constructor(width, height) {
-      this.width = width;
-      this.height = height;
-      this.widthPOT = nearestPOT(width);
-      this.heightPOT = nearestPOT(height);
-      this.recycled = false;
-      this.buffer = new Float32Array(width * height);
-      [this.packed, this.slot] = Buffer2DPacked.alloc(this.width, this.height, this.widthPOT, this.heightPOT);
-      this.texture = this.packed.texture;
-    }
-    solve(program, bindings) {
-      program(this, bindings);
+      if (needSwap) {
+        if (!this.swap) {
+          this.swap = new Buffer2D(this.width, this.height, true);
+        }
+        this.swap.solve(program, bindings);
+        this.bindFramebuffer();
+        copyProgram(this, { source: this.swap }, true);
+      } else {
+        this.bindFramebuffer();
+        program(this, bindings, true);
+      }
+      this.packed.needDownload = true;
     }
     bindFramebuffer() {
-      this.packed.bindFramebuffer();
-      gl.viewport(0, 0, this.width, this.height);
-      gl.colorMask(this.slot === 0, this.slot === 1, this.slot === 2, this.slot === 3);
+      const { packed, slot, width, height } = this;
+      packed.bindFramebuffer();
+      gl.viewport(0, 0, width, height);
+      gl.colorMask(slot === 0, slot === 1, slot === 2, slot === 3);
     }
     set(data) {
       this.packed.set(data, this.slot);
@@ -310,11 +359,14 @@ function GPU() {
     clear() {
       this.bindFramebuffer();
       gl.clear(gl.COLOR_BUFFER_BIT);
-      // TODO: set packed buffer
+      this.packed.needDownload = true;
     }
     recycle() {
-      this.recycled = true;
+      this.isRecycled = true;
       this.packed.recycle(this.slot);
+      if (this.swap) {
+        this.swap.recycle();
+      }
     }
   }
 
@@ -324,49 +376,7 @@ function GPU() {
     canvas.parentElement.removeChild(canvas);
   };
 
-  function nearestPOT(num) {
-    let ret = 1;
-    while (ret < num) {
-      ret *= 2;
-    }
-    return ret;
-  }
-
-  init();
   return gpu;
 }
 
 module.exports = GPU;
-
-window.pack = function pack(f, vec = [], p = 0) {
-  vec[0] = Math.floor(f);
-  return vec;
-  // const fract = (v) => v - Math.floor(v);
-  // const bit_shift = [256 * 256 * 256 , 256 * 256, 256, 1];
-  // const bit_mask = [0, 1 / 256, 1 / 256, 1 / 256];
-  // const res = bit_shift.map(v => fract(v * f));
-  // res[0] -= res[0] * bit_mask[0];
-  // res[1] -= res[0] * bit_mask[1];
-  // res[2] -= res[1] * bit_mask[2];
-  // res[3] -= res[2] * bit_mask[3];
-  // return res.map(v => Math.floor(v * 255));
-  // vec4 pack_float(float f) {
-  //   const vec4 bit_shift = vec4(256.0 * 256.0 * 256.0, 256.0 * 256.0, 256.0, 1.0);
-  //   const vec4 bit_mask = vec4(0.0, 1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0);
-  //   vec4 res = fract(f * bit_shift);
-  //   res -= res.xxyz * bit_mask;
-  //   return res;
-  // }
-}
-
-window.unpack = function unpack(vec, p = 0) {
-  const bit_shift = [1 / (256 * 256 * 256), 1 / (256 * 256), 1 / (256), 1];
-  const res = bit_shift.map((v, i) => v * vec[i + p] / 255).reduce((a, b) => a + b);
-  return res;
-}
-
-//       float unpack_float(vec4 rgba) {
-//         const vec4 bit_shift = vec4(1.0 / (256.0 * 256.0 * 256.0), 1.0 / (256.0 * 256.0), 1.0 / 256.0, 1.0);
-//         float res = dot(rgba, bit_shift);
-//         return res;
-//       }

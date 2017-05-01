@@ -1,4 +1,4 @@
-await sleep(2000);
+await sleep(1000);
 const pipe = require('./pipe');
 const Network = require('./network');
 const gpu = require('./gpu');
