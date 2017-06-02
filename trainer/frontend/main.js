@@ -1,4 +1,3 @@
-await sleep(1000);
 const pipe = require('./pipe');
 const Network = require('./network');
 const gpu = require('./gpu');
@@ -7,6 +6,7 @@ let network;
 
 pipe.register('init', async (props, layers) => {
   network = new Network(layers);
+  console.log(network.forward({ w: [1, 1] }).get());
   await sleep(10000000);
 });
 

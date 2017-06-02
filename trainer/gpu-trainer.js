@@ -13,6 +13,7 @@ class GPUTrainer {
     this.browser = null;
     this.rpcCounter = 1;
     this.rpcResolves = {};
+    const timestamp = Date.now();
     this.server = Http.createServer((req, res) => {
       switch (req.url) {
         case '/':
@@ -40,6 +41,21 @@ class GPUTrainer {
             this.receiveEvent(eventName, data);
           }));
           break;
+        case '/alive':
+          res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+          res.write(`retry: 200\r\n\r\nevent: alive\r\ndata: ${timestamp}\r\n\r\n`);
+          const alive = setInterval(() => {
+            if (res.socket.destroyed) {
+              clearInterval(alive);
+            } else {
+              res.write(`event: alive\r\ndata: ${timestamp}\r\n\r\n`);
+            }
+            if (this.browser && this.browser.socket.destroyed) {
+              console.log('Browser closed');
+              process.exit(1);
+            }
+          }, 1000);
+          break;
         default:
           const fpath = Path.join(__dirname, 'frontend', req.url.substr(1));
           Fs.exists(fpath, exists => {
@@ -58,18 +74,29 @@ class GPUTrainer {
           break;
       }
     });
-    this.server.listen(() => {
-      const app = ({ win32: 'chrome', linux: 'google-chrome' })[os.platform()] || 'google chrome';
-      opn(`http://localhost:${this.server.address().port}/`, { app });
-    });
+    const listenArgs = [() => {
+      setTimeout(() => {
+        if (!this.browser) {
+          const app = ({ win32: 'chrome', linux: 'google-chrome' })[os.platform()] || 'google chrome';
+          opn(`http://localhost:${this.server.address().port}/`, { app });
+        }
+      }, 2000);
+    }];
+    if (process.env.PORT > 10) {
+      listenArgs.unshift(process.env.PORT - 0);
+    }
+    this.server.listen(...listenArgs);
   }
 
   sendEvent(eventName, data) {
     if (this.browser.socket.destroyed) {
-      console.log('Browser closed');
-      process.exit(1);
+      setTimeout(() => {
+        console.log('Browser closed');
+        process.exit(1);
+      }, 2000);
+    } else {
+      this.browser.write(`event: ${eventName}\r\ndata: ${JSON.stringify(data)}\r\n\r\n`);
     }
-    this.browser.write(`event: ${eventName}\r\ndata: ${JSON.stringify(data)}\r\n\r\n`);
   }
 
   receiveEvent(eventName, data) {

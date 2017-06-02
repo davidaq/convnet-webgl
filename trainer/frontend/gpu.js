@@ -15,7 +15,8 @@ function GPU() {
    * Constants used all over this gpgpu context
    */
   const bufferPacks = {};
-  const { canvas, gl, rectPosBuffer, nonceTexture, passthruVertexShader } = init();
+  let gl, rectPosBuffer, nonceTexture, passthruVertexShader;
+  init();
   const copyProgram = createProgram({ source: 'buffer' }, `
     return source(outpos);
   `);
@@ -28,13 +29,13 @@ function GPU() {
     canvas.width = 1;
     canvas.height = 1;
     document.body.appendChild(canvas);
-    const gl = canvas.getContext('webgl');
+    gl = canvas.getContext('webgl');
     gl.getExtension('OES_texture_float');
     gl.clearColor(0.0, 0.0, 0.0, 0.0);
     gl.disable(gl.DEPTH_TEST);
 
-    const rectPosBuffer = gl.createBuffer();
-    const nonceTexture = gl.createTexture();
+    rectPosBuffer = gl.createBuffer();
+    nonceTexture = gl.createTexture();
 
     const vertices = [
       0, 0,
@@ -51,7 +52,7 @@ function GPU() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 
-    const passthruVertexShader = createShader(gl.VERTEX_SHADER, `
+    passthruVertexShader = createShader(gl.VERTEX_SHADER, `
       attribute mediump vec2 v_coord;
       varying highp vec2 f_outpos;
       void main() {
@@ -59,7 +60,6 @@ function GPU() {
         gl_Position = vec4(v_coord.xy * 2.0 - 1.0, 0.0, 1.0);
       }
     `);
-    return { canvas, gl, rectPosBuffer, nonceTexture, passthruVertexShader };
   }
 
   /**
@@ -347,7 +347,7 @@ function GPU() {
    * can be used as program input or output
    */
   class Buffer2D {
-    constructor(width, height, isSwap) {
+    constructor(width, height = 1, isSwap = false) {
       width = width | 0;
       height = height | 0;
       this.width = width;

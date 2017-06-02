@@ -13,6 +13,22 @@
         margin-top: 30vh;
       }
     </style>
+    <script>
+      const sse = new EventSource('/alive');
+      let timestamp;
+      let timeout;
+      sse.addEventListener('alive', (evt) => {
+        if (!timestamp) {
+          timestamp = evt.data;
+        } else if (evt.data !== timestamp) {
+          window.location.reload();
+        }
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          window.close();
+        }, 3000);
+      });
+    </script>
   </head>
   <body>
     <h1>Please DO NOT refresh or open this page manually!</h1>
