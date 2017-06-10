@@ -1,6 +1,8 @@
 const GPU = require('./gpu');
 const InputLayer = require('./layers/input');
 const FullConnLayer = require('./layers/fc');
+const ReluLayer = require('./layers/relu');
+const RegressionLayer = require('./layers/regression');
 
 function Network(initLayers) {
   const gpu = new GPU();
@@ -10,11 +12,16 @@ function Network(initLayers) {
   const layerTypeMap = {
     input: InputLayer,
     fc: FullConnLayer,
+    relu: ReluLayer,
+    regression: RegressionLayer,
   };
-  const layers = initLayers.map(layer => {
-    const MixedLayer = layerTypeMap[layer.layer_type];
-    if (MixedLayer) {
-      return new MixedLayer(gpu, layer);
+  
+  const layers = initLayers.map(props => {
+    const layerFactory = layerTypeMap[props.layer_type];
+    if (layerFactory) {
+      const layer = layerFactory(gpu, props);
+      layer.typeName = props.layer_type;
+      return layer;
     }
   }).filter(v => !!v);
   const revLayers = layers.slice(0).reverse(); 
